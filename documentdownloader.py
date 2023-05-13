@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import os
 import urllib.parse
-from PyPDF2 import PdfConverter, PdfFileReader
+from PyPDF2 import PdfWriter
 import textract
 import streamlit as st
 import pandas as pd
@@ -14,20 +14,13 @@ def is_downloadable(url):
     return ext.lower() in extensions
 
 def convert_to_pdf(file_path):
-    file_format = os.path.splitext(file_path)[1].lower()
-    if file_format == '.pdf':
-        return file_path
-    else:
-        pdf_path = os.path.splitext(file_path)[0] + '.pdf'
-        if file_format == '.txt':
-            text = open(file_path, 'rb').read()
-        else:
-            text = textract.process(file_path)
-        with open(pdf_path, 'wb') as pdf_file:
-            pdf_writer = PdfConverter()
-            pdf_writer.addPage(PdfFileReader(text, strict=False).pages[0])
-            pdf_writer.write(pdf_file)
-        return pdf_path
+    text = textract.process(file_path)
+    pdf_path = os.path.splitext(file_path)[0] + '.pdf'
+    with open(pdf_path, 'wb') as pdf_file:
+        pdf_writer = PdfWriter()
+        pdf_writer.addPage(text)
+        pdf_writer.write(pdf_file)
+    return pdf_path
 
 def scrape_and_convert_documents(url, save_directory, username=None, password=None):
     session = requests.Session()
@@ -55,19 +48,13 @@ option = st.radio("Select Option:", ("Scrape from URL", "Scrape from File"))
 if option == "Scrape from URL":
     url = st.text_input("Enter the URL:")
     requires_login = st.checkbox("Requires Login")
-
     if requires_login:
         username = st.text_input("Enter username:")
         password = st.text_input("Enter password:", type="password")
     else:
         username = None
         password = None
-
     save_directory = st.text_input("Save Directory")
-
-    if st.button("Browse"):
-        save_directory = st.file_browser(title="Select Directory", type=2)
-
     if st.button("Scrape and Convert"):
         if url and save_directory:
             scrape_and_convert_documents(url, save_directory, username, password)
@@ -77,21 +64,20 @@ if option == "Scrape from URL":
 elif option == "Scrape from File":
     file = st.file_uploader("Upload file", type=["csv", "doc", "docx", "pdf", "xlsx"])
     save_directory = st.text_input("Save Directory")
-
-    if st.button("Browse"):
-        save_directory = st.file_browser(title="Select Directory", type=2)
-
     if st.button("Scrape and Convert"):
         if file and save_directory:
             file_extension = os.path.splitext(file.name)[1].lower()
             if file_extension == ".csv":
                 df = pd.read_csv(file)
-            elif file_extension == '.xlsx':
-                df = pd.read_excel(file)
-
-            if file_extension in ['.csv', '.xlsx']:
-                for _, row in df.iterrows():
-                    url = row['URL']
+                urls = df['URL'].tolist()
+                for url in urls:
+                    scrape_and_convert_documents(url, save_directory)
+            elif file_extension in ['.doc', '.docx', '.pdf', '.xlsx']:
+                if file_extension == '.xlsx':
+                    df = pd.read_excel(file)
+                else:
+                    df = pd.read_csv(file, delimiter='\t')
+                for url in df['URL']:
                     scrape_and_convert_documents(url, save_directory)
         else:
-            st.warning("Please select a file and provide a save directory."
+            st.warning("Please upload a file and select a save directory.")
